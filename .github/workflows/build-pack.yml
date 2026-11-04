@@ -1,0 +1,70 @@
+name: Build pack
+
+on:
+  workflow_dispatch:
+    inputs:
+      gen_url:
+        description: generated.zip download link (sent by Pack Studio)
+        required: true
+      me_url:
+        description: ModelEngine pack download link (optional)
+        required: false
+        default: ''
+      pack_path:
+        description: Pack file in this repo
+        required: true
+        default: sotcl.zip
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-pack
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Hide download links
+        run: |
+          echo "::add-mask::${{ inputs.gen_url }}"
+          if [ -n "${{ inputs.me_url }}" ]; then echo "::add-mask::${{ inputs.me_url }}"; fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Download ItemsAdder and ModelEngine packs
+        env:
+          GEN_URL: ${{ inputs.gen_url }}
+          ME_URL: ${{ inputs.me_url }}
+        run: |
+          curl -fsSL -o /tmp/generated.zip "$GEN_URL"
+          if [ -n "$ME_URL" ]; then curl -fsSL -o /tmp/modelengine.zip "$ME_URL"; fi
+          ls -la /tmp/*.zip
+
+      - name: Build the pack
+        env:
+          PACK: ${{ inputs.pack_path }}
+        run: |
+          ME_ARG=""
+          if [ -f /tmp/modelengine.zip ]; then ME_ARG="--me /tmp/modelengine.zip"; fi
+          python tools/build_pack.py --work "$PACK" --gen /tmp/generated.zip $ME_ARG --out /tmp/out.zip
+          mv /tmp/out.zip "$PACK"
+          sha1sum "$PACK" | cut -d' ' -f1 > pack.sha1
+          echo "SHA-1: $(cat pack.sha1)"
+
+      - name: Commit
+        env:
+          PACK: ${{ inputs.pack_path }}
+        run: |
+          git config user.name "ItsJustLuke_"
+          git config user.email "ItsJustLuke_@users.noreply.github.com"
+          git add "$PACK" pack.sha1
+          if git diff --cached --quiet; then echo "Nothing changed"; exit 0; fi
+          git commit -m "Pack build $(date -u +'%Y-%m-%d %H:%M') UTC"
+          git push
