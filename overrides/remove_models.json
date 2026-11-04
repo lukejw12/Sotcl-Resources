@@ -1,4 +1,8 @@
 [
+    "sotcl:item/ia_auto/chiseled_blackstone_tiles",
+    "sotcl:item/ia_auto/chiseled_blackstone_tiles_placed",
     "sotcl:item/ia_auto/fuckass",
-    "sotcl:item/ia_auto/fuckass_placed"
+    "sotcl:item/ia_auto/fuckass_placed",
+    "sotcl:item/ia_auto/snow_brick",
+    "sotcl:item/ia_auto/snow_brick_placed"
 ]
