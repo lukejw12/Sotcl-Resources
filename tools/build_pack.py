@@ -73,6 +73,99 @@ size = os.path.getsize(a.out)
 print('Output size: %.1f MB' % (size / 1048576))
 if size > 99 * 1048576:
     sys.exit('The pack is over GitHub\'s 100 MB file limit.')
+# Blocks removed in Pack Studio: drop what's left of them in the pack (ItemsAdder
+# blockstate variants, creative menu and item model entries, then unused models).
+# Anything the fresh generated pack still refers to is never touched.
+CARRIERS = ['note_block', 'brown_mushroom_block', 'red_mushroom_block', 'mushroom_stem', 'tripwire', 'chorus_plant', 'farmland']
+REF = re.compile(r'"(?:model|parent)"\s*:\s*"([^"]+)"')
+def norm(ref):
+    return ref if ':' in ref else 'minecraft:' + ref
+rmj = os.path.join(over, 'remove_models.json')
+if os.path.exists(rmj):
+    try:
+        gone = set(json.load(open(rmj)))
+    except Exception as e:
+        gone = set()
+        print('overrides/remove_models.json is not valid JSON, ignoring it:', e)
+    if gone:
+        live = set()
+        with zipfile.ZipFile(a.gen) as g:
+            for n in g.namelist():
+                if n.endswith('.json'):
+                    live.update(norm(r) for r in REF.findall(g.read(n).decode('utf-8', 'ignore')))
+        gone = {m for m in gone if norm(m) not in live}
+    if gone:
+        with zipfile.ZipFile(a.out) as zin:
+            files = {i.filename: zin.read(i.filename) for i in zin.infolist()}
+        def refs(o):
+            out = set()
+            if isinstance(o, dict):
+                for k, v in o.items():
+                    if k in ('model', 'parent') and isinstance(v, str):
+                        out.add(norm(v))
+                    else:
+                        out |= refs(v)
+            elif isinstance(o, list):
+                for v in o:
+                    out |= refs(v)
+            return out
+        def prune(o):
+            n = 0
+            if isinstance(o, dict):
+                for v in o.values():
+                    n += prune(v)
+            elif isinstance(o, list):
+                keep = []
+                for v in o:
+                    if isinstance(v, dict) and ('threshold' in v or 'when' in v) and refs(v) and refs(v) <= gone:
+                        n += 1
+                        continue
+                    n += prune(v)
+                    keep.append(v)
+                o[:] = keep
+            return n
+        states = entries = 0
+        for n in list(files):
+            m = re.match(r'^assets/minecraft/blockstates/([a-z_]+)\.json$', n)
+            if m and m.group(1) in CARRIERS:
+                try:
+                    bs = json.loads(files[n])
+                except Exception:
+                    continue
+                vs = bs.get('variants') or {}
+                keep = {k: v for k, v in vs.items() if not (refs(v) and refs(v) <= gone)}
+                if len(keep) != len(vs):
+                    states += len(vs) - len(keep)
+                    bs['variants'] = keep
+                    files[n] = json.dumps(bs, indent=2).encode()
+            elif re.match(r'^(?:[^/]+/)?assets/minecraft/items/[a-z_]+\.json$', n):
+                try:
+                    d = json.loads(files[n])
+                except Exception:
+                    continue
+                c = prune(d)
+                if c:
+                    entries += c
+                    files[n] = json.dumps(d, indent=2).encode()
+        used = set()
+        for n, data in files.items():
+            if n.endswith('.json') and ('/blockstates/' in n or '/models/' in n or '/items/' in n):
+                used.update(norm(r) for r in REF.findall(data.decode('utf-8', 'ignore')))
+        models = 0
+        for ref in sorted(gone):
+            ns, path = ref.split(':', 1)
+            mk = 'assets/%s/models/%s.json' % (ns, path)
+            if mk in files and ref not in used:
+                del files[mk]
+                models += 1
+        if states or entries or models:
+            tmp = a.out + '.tmp'
+            with zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED) as zout:
+                for n, data in files.items():
+                    zout.writestr(n, data)
+            os.replace(tmp, a.out)
+        print('Removed blocks: %d blockstate variant(s), %d item/creative entr(ies), %d model(s) dropped' % (states, entries, models))
+
 z = zipfile.ZipFile(a.out)
 names = z.namelist()
 if 'pack.mcmeta' not in names:
