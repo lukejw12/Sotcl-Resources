@@ -1,22 +1,18 @@
 import json, os, sys, copy, zipfile, io, shutil, tempfile, struct, zlib
 
 
-
 PILLAR_MATCH_ENDS = True
 
-
-TARGET_PACK_FORMAT = 75
+TARGET_PACK_FORMAT = 97
 TARGET_SUPPORTED_FORMATS = {"min_inclusive": 46, "max_inclusive": 9999}
 
 CROSS_MODEL_IDS = set()
-
 
 PILLAR_SIDE_MODE = "custom"
 PILLAR_FACES = {
     "x": {"up": (90, "H"), "down": (90, "H"), "north": (90, "H"), "south": (90, "H")},
     "z": {"up": (0, None), "down": (0, None), "west": (90, "H"), "east": (90, "H")},
 }
-
 
 PILLAR_DEBUG = False
 import tkinter as tk
@@ -49,7 +45,9 @@ DEFAULT_MODELS = {
     "minecraft:block/blackstone",
 }
 
-
+# Format ranges ItemsAdder itself gives its overlays (taken from a clean ItemsAdder 26.3 pack). Used to register an
+# ia_overlay_* folder that has files but is missing from pack.mcmeta, e.g. when a custom pack.mcmeta replaced
+# ItemsAdder's own overlay list.
 KNOWN_IA_OVERLAYS = {
     "ia_overlay_1_20_5_plus": (32, 9999),
     "ia_overlay_1_21_2_plus": (42, 9999),
@@ -89,8 +87,12 @@ def _model_ref_to_path(ref):
         ns, path = "minecraft", ref
     return f"assets/{ns}/models/{path}.json"
 
+# ----------------------------------------------------------------------
+# v14: ModelEngine merge settings
+# ----------------------------------------------------------------------
 ME_NAMESPACE_PREFIX = "assets/modelengine/"
 ME_OVERLAY_PREFIX = "modelengine_"
+# items whose custom_model_data entries ModelEngine owns (merged by threshold / predicate, not replaced)
 ME_ITEM_DEFS = ["assets/minecraft/items/leather_horse_armor.json"]
 ME_LEGACY_ITEM_MODELS = ["assets/minecraft/models/item/leather_horse_armor.json"]
 
@@ -107,6 +109,7 @@ def _read_pack(path):
                     files[rel] = f.read()
     else:
         files = _read_zip_lenient(path)
+    # packs zipped as a single top folder (e.g. "resource pack/pack.mcmeta") -> strip that folder
     if files and "pack.mcmeta" not in files:
         tops = {p.split("/", 1)[0] for p in files}
         if len(tops) == 1:
@@ -153,12 +156,12 @@ def _is_shader_path(path):
 
 
 def _normalise_pack_format(merged, log):
-    """Set the merged pack to Minecraft 1.21.11's pack_format with a wide supported_formats range.
+    """Set the merged pack to a 26.3-era pack_format with a wide supported_formats range.
 
-    min_format and max_format are written too: 1.21.11 understands them, and newer clients (for example
-    through ViaVersion) require them. Every overlay and asset is kept untouched; only the top-level pack
-    version fields are rewritten."""
-    log("\n═══ PACK FORMAT (1.21.11) ═══", "header")
+    The working pack is often still on a 1.21.x pack_format (e.g. 75) with an old supported_formats
+    (e.g. [32, 64]); on 26.3 the client would drop it as incompatible. We keep every overlay and asset
+    untouched and only rewrite the top-level pack version fields."""
+    log("\n═══ PACK FORMAT (26.3) ═══", "header")
     raw = merged.get("pack.mcmeta")
     meta = None
     if raw:
@@ -175,6 +178,7 @@ def _normalise_pack_format(merged, log):
     hi = TARGET_SUPPORTED_FORMATS["max_inclusive"]
     pack["pack_format"] = TARGET_PACK_FORMAT
     pack["supported_formats"] = dict(TARGET_SUPPORTED_FORMATS)
+    # 26.3 rejects packs above format 64 unless min_format and max_format are present as top-level ints
     pack["min_format"] = lo
     pack["max_format"] = hi
     merged["pack.mcmeta"] = json.dumps(meta, indent=2).encode()
@@ -211,7 +215,7 @@ def run_merge(work_path, gen_path, me_path, out_path, log, me_shaders=False):
     else:
         log("\n(ModelEngine skipped — no ModelEngine pack given)", "sub")
 
-    # normalise pack.mcmeta for Minecraft 1.21.11
+    # v17: normalise pack.mcmeta so Minecraft 26.3 accepts the merged pack
     _normalise_pack_format(merged, log)
 
     log(f"\n═══ WRITING OUTPUT ═══", "header")
@@ -1254,7 +1258,7 @@ def _merge_modelengine(merged, me_path, changes, log, include_shaders):
 class App:
     def __init__(self, root):
         self.root = root
-        self.root.title("IA Block Porter v20 (1.21.11)")
+        self.root.title("IA Block Porter v20")
         self.root.geometry("820x740")
         self.root.configure(bg=T["bg"])
         self.root.minsize(640, 560)
@@ -1265,7 +1269,7 @@ class App:
         hdr.pack(fill="x", padx=24, pady=(18, 0))
         tk.Label(hdr, text="IA Block Porter", font=("Segoe UI", 18, "bold"),
                  fg=T["ac"], bg=T["bg"]).pack(side="left")
-        tk.Label(hdr, text="v20 \u00b7 1.21.11", font=("Segoe UI", 9, "bold"),
+        tk.Label(hdr, text="v20", font=("Segoe UI", 9, "bold"),
                  fg=T["mt"], bg=T["bg"]).pack(side="left", padx=(8, 0), pady=(6, 0))
 
         tk.Label(self.root, text="Merges an ItemsAdder pack, a ModelEngine pack, or both into your working pack. "

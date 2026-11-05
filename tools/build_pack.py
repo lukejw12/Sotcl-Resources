@@ -33,7 +33,32 @@ if not hasattr(mod, 'run_merge'):
 def log(*parts):
     print(*parts, flush=True)
 
-mod.run_merge(a.work, a.gen, a.me, a.out, log)
+import inspect
+ROLES = {
+    'work': ('work', 'working', 'og', 'base', 'pack', 'served', 'current'),
+    'gen': ('gen', 'generated', 'ia', 'itemsadder', 'ia_zip', 'generated_zip'),
+    'me': ('me', 'modelengine', 'model_engine', 'me_zip', 'meg'),
+    'out': ('out', 'output', 'dest', 'destination', 'target', 'out_zip'),
+    'log': ('log', 'logger', 'logf', 'print_fn', 'say'),
+}
+values = {'work': a.work, 'gen': a.gen, 'me': a.me, 'out': a.out, 'log': log}
+try:
+    params = list(inspect.signature(mod.run_merge).parameters.values())
+except (TypeError, ValueError):
+    params = []
+kwargs, matched = {}, set()
+for prm in params:
+    for role, names in ROLES.items():
+        if role not in matched and prm.name.lower() in names:
+            kwargs[prm.name] = values[role]
+            matched.add(role)
+            break
+if params and {'work', 'gen', 'out'} <= matched:
+    print('Calling run_merge(%s)' % ', '.join(kwargs))
+    mod.run_merge(**kwargs)
+else:
+    print('Calling run_merge(work, gen, me, out, log)')
+    mod.run_merge(a.work, a.gen, a.me, a.out, log)
 
 if not os.path.exists(a.out):
     sys.exit('The porter did not write ' + a.out)
