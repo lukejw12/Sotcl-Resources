@@ -72,7 +72,7 @@ if os.path.isdir(over):
         for f in files:
             full = os.path.join(dirpath, f)
             rel = os.path.relpath(full, over).replace(os.sep, '/')
-            if rel.startswith('assets/'):
+            if re.match(r'^(?:[a-z0-9_.-]+/)?assets/', rel):
                 adds[rel] = full
     drops = set()
     dj = os.path.join(over, 'delete.json')
