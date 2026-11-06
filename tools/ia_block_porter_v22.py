@@ -967,11 +967,11 @@ def _unnest_raw_files(gen_files, log):
 
 
 def _is_override_blockstate(path):
-    """Whole-file blockstate overrides written by IACopperBlockInjector: waxed copper carriers and leaf slots."""
+    """Whole-file blockstate overrides written by IACopperBlockInjector: waxed copper carriers, leaf slots and shelf slots."""
     if not (path.startswith("assets/minecraft/blockstates/") and path.endswith(".json")):
         return False
     name = path.rsplit("/", 1)[-1]
-    return name.startswith("waxed_") or name.endswith("_leaves.json")
+    return name.startswith("waxed_") or name.endswith("_leaves.json") or name.endswith("_shelf.json")
 
 
 def _remove_stale_itemsadder(merged, gen_files, changes, log):
