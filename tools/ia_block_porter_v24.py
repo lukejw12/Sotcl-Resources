@@ -84,6 +84,35 @@ def _merge_jank(merged, gen_files, changes, log):
     models use, and drop files of Jank blocks that are gone (the plugin wipes each block's folders too)."""
     log("\n═══ JANK BLOCKS (IACopperBlockInjector) ═══", "header")
     gen_jank = {p: d for p, d in gen_files.items() if _is_jank_path(p)}
+    fixed_refs = 0
+    for path in list(gen_jank):
+        if "/models/" not in path:
+            continue
+        try:
+            model = json.loads(gen_jank[path].decode("utf-8-sig") if isinstance(gen_jank[path], bytes) else gen_jank[path])
+        except Exception:
+            continue
+        texs = model.get("textures") or {}
+        changed = False
+        for key, ref in list(texs.items()):
+            sprite = ref.get("sprite") if isinstance(ref, dict) else ref
+            if not isinstance(sprite, str) or not sprite.startswith("_") or ":" not in sprite:
+                continue
+            bad = _resource_to_tex_path(sprite)
+            good = _resource_to_tex_path(sprite[1:])
+            if bad in gen_files or bad in merged:
+                continue
+            if good in gen_files or good in merged:
+                if isinstance(ref, dict):
+                    ref["sprite"] = sprite[1:]
+                else:
+                    texs[key] = sprite[1:]
+                changed = True
+                fixed_refs += 1
+        if changed:
+            gen_jank[path] = json.dumps(model, indent=2).encode("utf-8")
+    if fixed_refs:
+        log(f"  Fixed {fixed_refs} texture reference(s) written as _<namespace>:... (the namespace had no such texture)", "warn")
     copied = 0
     for path, data in gen_jank.items():
         if merged.get(path) != data:
