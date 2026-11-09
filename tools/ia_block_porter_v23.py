@@ -73,6 +73,54 @@ def _load_json_from_zip(zf, path):
     except (KeyError, json.JSONDecodeError):
         return None
 
+def _is_jank_path(path):
+    parts = path.split("/")
+    return len(parts) > 4 and parts[0] == "assets" and parts[2] in ("items", "models") and parts[3] == "jank"
+
+
+def _merge_jank(merged, gen_files, changes, log):
+    """IACopperBlockInjector 1.7.0 Jank blocks: baked models in assets/<ns>/models/jank/<id>/ and the item
+    definitions their displays use in assets/<ns>/items/jank/<id>/. Copy them over, bring in the textures the
+    models use, and drop files of Jank blocks that are gone (the plugin wipes each block's folders too)."""
+    log("\n═══ JANK BLOCKS (IACopperBlockInjector) ═══", "header")
+    gen_jank = {p: d for p, d in gen_files.items() if _is_jank_path(p)}
+    copied = 0
+    for path, data in gen_jank.items():
+        if merged.get(path) != data:
+            merged[path] = data
+            copied += 1
+    textures = 0
+    for path, data in gen_jank.items():
+        if "/models/" not in path:
+            continue
+        try:
+            model = json.loads(data.decode("utf-8-sig") if isinstance(data, bytes) else data)
+        except Exception:
+            continue
+        for ref in (model.get("textures") or {}).values():
+            if isinstance(ref, dict):
+                ref = ref.get("sprite", "")
+            if not isinstance(ref, str) or not ref or ref.startswith("#"):
+                continue
+            tex = _resource_to_tex_path(ref)
+            for p in (tex, tex + ".mcmeta"):
+                if p in gen_files and p not in merged:
+                    merged[p] = gen_files[p]
+                    if p == tex:
+                        changes["textures"].append(p)
+                        textures += 1
+    stale = [p for p in merged if _is_jank_path(p) and p not in gen_jank]
+    for p in stale:
+        del merged[p]
+        changes["removed"].append(p)
+    blocks = {p.split("/jank/", 1)[1].split("/", 1)[0] for p in gen_jank}
+    if gen_jank or stale:
+        log(f"  {len(blocks)} Jank block(s): {copied} file(s) copied or refreshed, {textures} texture(s) added, "
+            f"{len(stale)} stale file(s) removed", "ok")
+    else:
+        log("  No Jank blocks in the generated pack", "sub")
+
+
 def _resource_to_tex_path(resource):
     if ":" in resource:
         ns, path = resource.split(":", 1)
@@ -945,6 +993,8 @@ def _merge_itemsadder(work_files, merged, gen_path, changes, log):
         log(f"  {new_ns_count} overlay/namespace file(s) copied or refreshed", "ok")
     else:
         log("  No new namespace files", "sub")
+
+    _merge_jank(merged, gen_files, changes, log)
 
     _remove_stale_itemsadder(merged, gen_files, changes, log)
     return next_ia
