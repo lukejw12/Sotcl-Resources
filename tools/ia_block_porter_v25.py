@@ -381,6 +381,7 @@ def _merge_itemsadder(work_files, merged, gen_path, changes, log):
     log("\n═══ BLOCKSTATES ═══", "header")
 
     new_block_models = {}  # model_ref -> needs processing
+    current_block_models = {}  # every custom model the generated blockstates use: refreshed when ItemsAdder changed it
     cross_placed_refs = {}  # model_ref -> model_ref_placed (plants: blockstates must use the cross model)
     wire_model_ids = set()  # model ids referenced by the tripwire blockstate = plants
 
@@ -402,6 +403,8 @@ def _merge_itemsadder(work_files, merged, gen_path, changes, log):
                 wire_model_ids.add(model.rsplit("/", 1)[-1])
             if model in DEFAULT_MODELS:
                 continue
+            if model:
+                current_block_models[model] = True
             if state not in work_variants:
                 new_variants[state] = vdata
             else:
@@ -430,9 +433,35 @@ def _merge_itemsadder(work_files, merged, gen_path, changes, log):
     if not new_block_models:
         log("  No new blockstate entries found.", "sub")
 
+    refreshed = {"models": 0, "textures": 0}
+
+    def _refresh_texture(tex_path):
+        for p in (tex_path, tex_path + ".mcmeta"):
+            if p in gen_files and p in merged and merged[p] != gen_files[p]:
+                merged[p] = gen_files[p]
+                changes["textures"].append(p)
+                if p == tex_path:
+                    refreshed["textures"] += 1
+                    log(f"  Updated texture: {p}", "sub")
+
+    def _write_block_model(path, data, label):
+        old = merged.get(path)
+        if old is not None:
+            try:
+                if json.loads(old) == data:
+                    return False
+            except Exception:
+                pass
+            refreshed["models"] += 1
+            label = "Updated model"
+        merged[path] = json.dumps(data).encode()
+        log(f"  {label}: {path}", "ok")
+        changes["models"].append(path)
+        return True
+
     log("\n═══ BLOCK MODELS & TEXTURES ═══", "header")
 
-    for model_ref in new_block_models:
+    for model_ref in list(new_block_models) + [m for m in current_block_models if m not in new_block_models and not m.endswith("_placed")]:
         model_path = _model_ref_to_path(model_ref)
 
         if model_path not in gen_files:
@@ -459,6 +488,7 @@ def _merge_itemsadder(work_files, merged, gen_path, changes, log):
                     resource = old_ref[3:]  # strip "_b_"
 
                 if resource in existing_resources:
+                    _refresh_texture(_resource_to_tex_path(resource))
                     for entry in work_atlas["sources"]:
                         if entry.get("type") == "single" and entry["resource"] == resource:
                             ref_mapping[old_ref] = entry.get("sprite", entry["resource"])
@@ -496,30 +526,30 @@ def _merge_itemsadder(work_files, merged, gen_path, changes, log):
                 if sprite:
                     # item (gui / hand / frame): flat sprite; placed block: separate cross model
                     placed_path = model_path[:-5] + "_placed.json"
-                    merged[placed_path] = json.dumps({"parent": "minecraft:block/cross",
-                                                      "textures": {"cross": sprite, "particle": sprite}}).encode()
+                    if _write_block_model(placed_path, {"parent": "minecraft:block/cross",
+                                                        "textures": {"cross": sprite, "particle": sprite}}, "Model"):
+                        log(f"  Plant: {model_id} -> 2D item + _placed cross model", "ok")
                     new_model = {"parent": "minecraft:item/generated", "textures": {"layer0": sprite}}
                     cross_placed_refs[model_ref] = model_ref + "_placed"
-                    log(f"  Plant: {model_id} -> 2D item + _placed cross model", "ok")
 
-            merged[model_path] = json.dumps(new_model).encode()
-            log(f"  Model: {model_path}", "ok")
-            changes["models"].append(model_path)
+            _write_block_model(model_path, new_model, "Model")
 
         else:
-            if model_path not in merged:
+            if _write_block_model(model_path, gen_model, "Model (direct)"):
                 merged[model_path] = gen_files[model_path]
-                log(f"  Model (direct): {model_path}", "ok")
-                changes["models"].append(model_path)
+            for tex_ref in gen_model.get("textures", {}).values():
+                if isinstance(tex_ref, str) and not tex_ref.startswith("#"):
+                    tex_path = _resource_to_tex_path(tex_ref)
+                    if tex_path in gen_files and tex_path not in merged:
+                        merged[tex_path] = gen_files[tex_path]
+                        log(f"  Texture: {tex_path}", "sub")
+                        changes["textures"].append(tex_path)
+                    else:
+                        _refresh_texture(tex_path)
 
-                for tex_ref in gen_model.get("textures", {}).values():
-                    if isinstance(tex_ref, str) and not tex_ref.startswith("#"):
-                        tex_path = _resource_to_tex_path(tex_ref)
-                        if tex_path in gen_files and tex_path not in merged:
-                            merged[tex_path] = gen_files[tex_path]
-                            log(f"  Texture: {tex_path}", "sub")
-                            changes["textures"].append(tex_path)
 
+    if refreshed["models"] or refreshed["textures"]:
+        log(f"  {refreshed['models']} existing model(s) and {refreshed['textures']} texture(s) updated to ItemsAdder's current version", "ok")
 
     # ------------------------------------------------------------------
     # Generic model porter (v2): remaps IA's "_b_<resource>" / "ia:N" sprite refs to this
