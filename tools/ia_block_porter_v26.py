@@ -433,16 +433,7 @@ def _merge_itemsadder(work_files, merged, gen_path, changes, log):
     if not new_block_models:
         log("  No new blockstate entries found.", "sub")
 
-    refreshed = {"models": 0, "textures": 0}
-
-    def _refresh_texture(tex_path):
-        for p in (tex_path, tex_path + ".mcmeta"):
-            if p in gen_files and p in merged and merged[p] != gen_files[p]:
-                merged[p] = gen_files[p]
-                changes["textures"].append(p)
-                if p == tex_path:
-                    refreshed["textures"] += 1
-                    log(f"  Updated texture: {p}", "sub")
+    refreshed = {"models": 0}
 
     def _write_block_model(path, data, label):
         old = merged.get(path)
@@ -461,11 +452,12 @@ def _merge_itemsadder(work_files, merged, gen_path, changes, log):
 
     log("\n═══ BLOCK MODELS & TEXTURES ═══", "header")
 
-    for model_ref in list(new_block_models) + [m for m in current_block_models if m not in new_block_models and not m.endswith("_placed")]:
+    for model_ref in list(new_block_models) + [m for m in current_block_models if m not in new_block_models and "ia_auto" in m and not m.endswith("_placed")]:
         model_path = _model_ref_to_path(model_ref)
 
         if model_path not in gen_files:
-            log(f"  WARNING: Model not found: {model_path}", "warn")
+            if model_ref in new_block_models:
+                log(f"  WARNING: Model not found: {model_path}", "warn")
             continue
 
         gen_model = json.loads(gen_files[model_path])
@@ -488,7 +480,6 @@ def _merge_itemsadder(work_files, merged, gen_path, changes, log):
                     resource = old_ref[3:]  # strip "_b_"
 
                 if resource in existing_resources:
-                    _refresh_texture(_resource_to_tex_path(resource))
                     for entry in work_atlas["sources"]:
                         if entry.get("type") == "single" and entry["resource"] == resource:
                             ref_mapping[old_ref] = entry.get("sprite", entry["resource"])
@@ -535,21 +526,22 @@ def _merge_itemsadder(work_files, merged, gen_path, changes, log):
             _write_block_model(model_path, new_model, "Model")
 
         else:
-            if _write_block_model(model_path, gen_model, "Model (direct)"):
+            if model_path not in merged:
                 merged[model_path] = gen_files[model_path]
-            for tex_ref in gen_model.get("textures", {}).values():
-                if isinstance(tex_ref, str) and not tex_ref.startswith("#"):
-                    tex_path = _resource_to_tex_path(tex_ref)
-                    if tex_path in gen_files and tex_path not in merged:
-                        merged[tex_path] = gen_files[tex_path]
-                        log(f"  Texture: {tex_path}", "sub")
-                        changes["textures"].append(tex_path)
-                    else:
-                        _refresh_texture(tex_path)
+                log(f"  Model (direct): {model_path}", "ok")
+                changes["models"].append(model_path)
+
+                for tex_ref in gen_model.get("textures", {}).values():
+                    if isinstance(tex_ref, str) and not tex_ref.startswith("#"):
+                        tex_path = _resource_to_tex_path(tex_ref)
+                        if tex_path in gen_files and tex_path not in merged:
+                            merged[tex_path] = gen_files[tex_path]
+                            log(f"  Texture: {tex_path}", "sub")
+                            changes["textures"].append(tex_path)
 
 
-    if refreshed["models"] or refreshed["textures"]:
-        log(f"  {refreshed['models']} existing model(s) and {refreshed['textures']} texture(s) updated to ItemsAdder's current version", "ok")
+    if refreshed["models"]:
+        log(f"  {refreshed['models']} existing ItemsAdder block model(s) updated (e.g. a block's texture was changed)", "ok")
 
     # ------------------------------------------------------------------
     # Generic model porter (v2): remaps IA's "_b_<resource>" / "ia:N" sprite refs to this
