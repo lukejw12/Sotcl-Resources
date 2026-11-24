@@ -34,16 +34,19 @@ layout(location = 8) out float nvFactor;
 #endif
 
 layout(location = 5) out vec2 texCoord0;
-layout(location = 11) out float jankDepthDir;
 #ifdef GLINT
 layout(location = 6) out vec2 texCoordGlint;
 #endif
 
 void main() {
-    bool jankFace = jank_marked(Color);
-    vec4 jankColor = jankFace ? vec4(1.0, 1.0, 1.0, Color.a) : Color;
-    jankDepthDir = jankFace ? jank_toward_camera(ProjMat) : 0.0;
-    gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);
+    int jank = jank_mark(Color);
+    vec4 jankColor = jank != 0 ? vec4(1.0, 1.0, 1.0, Color.a) : Color;
+    if (jank != 0 && jank_perspective(ProjMat)) {
+        vec3 pos = jank == 2 ? Position - Normal * JANK_FACE_PUSH : Position;
+        gl_Position = ProjMat * jank_pull(ModelViewMat * vec4(pos, 1.0), JANK_PULL);
+    } else {
+        gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);
+    }
 
     #ifndef OIT_ALPHA_ONLY
     sphericalVertexDistance = fog_spherical_distance(Position);

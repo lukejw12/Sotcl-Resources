@@ -9,7 +9,6 @@
 #include <minecraft:oit.glsl>
 #include <minecraft:sotcl_nv.glsl>
 #include <minecraft:projection.glsl>
-#include <minecraft:jank_depth.glsl>
 
 uniform sampler2D Sampler0;
 
@@ -27,7 +26,6 @@ layout(location = 3) in vec4 lightMapColor;
 layout(location = 4) in vec4 overlayColor;
 #endif
 layout(location = 5) in vec2 texCoord0;
-layout(location = 11) in float jankDepthDir;
 #ifdef GLINT
 layout(location = 6) in vec2 texCoordGlint;
 #endif
@@ -127,9 +125,6 @@ vec4 calculateFinalColor(vec4 color, int hyper) {
 #endif
 
 void main() {
-    float jankSlope = max(abs(dFdx(gl_FragCoord.z)), abs(dFdy(gl_FragCoord.z)));
-    float jankZ = jankDepthDir != 0.0 ? jank_depth(gl_FragCoord.z, jankSlope, jankDepthDir) : gl_FragCoord.z;
-    gl_FragDepth = jankZ;
     vec4 color = texture(Sampler0, texCoord0);
     #ifndef OIT_ALPHA_ONLY
     // markers are read from the full-resolution texel, so distant mipmaps can't blur them away
@@ -152,7 +147,7 @@ void main() {
     #endif
 
     #ifdef OIT_ALPHA_ONLY
-    executeAlphaOnlyPhase(jankZ, color.a);
+    executeAlphaOnlyPhase(gl_FragCoord.z, color.a);
     #else
     fragColor = calculateFinalColor(color, hyper);
     #endif
